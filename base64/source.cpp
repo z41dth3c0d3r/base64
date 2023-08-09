@@ -9,161 +9,187 @@
 
 void DisplayError(LPTSTR lpszFunction);
 
-LPCWSTR CharPtrToLPCWSTR(char* cFileName) {
-    int bufferSize = MultiByteToWideChar(CP_UTF8, 0, cFileName, -1, NULL, 0);
-    if (bufferSize == 0) {
-        // Error occurred in conversion
-        return NULL;
-    }
-
-    // Allocate memory for the wide-string
-    wchar_t* wWriteFileName = new wchar_t[bufferSize];
-    if (MultiByteToWideChar(CP_UTF8, 0, cFileName, -1, wWriteFileName, bufferSize) == 0) {
-        // Error occurred in conversion
-        delete[] wWriteFileName;
-        return NULL;
-    }
-
-    return wWriteFileName;
-}
-
-std::vector<BYTE> ReadFileData(char* cFileName) {
+TCHAR *ReadFileData(TCHAR *cFileName) {
     HANDLE hFile;
-    std::vector<BYTE> vbFileData;
-    LPCWSTR lpFileName = CharPtrToLPCWSTR(cFileName);
-    hFile = CreateFile(lpFileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    TCHAR *tFileData = NULL;
+    hFile = CreateFileW(cFileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         printf("[-] Error opening the input file.\n");
-        return vbFileData;
+        return NULL;
     }
     printf("[+] Opened the file successfully.\n");
     DWORD inputFileSize = GetFileSize(hFile, NULL);
     if (inputFileSize == INVALID_FILE_SIZE) {
         printf("[-] Error getting input file size.\n");
         CloseHandle(hFile);
-        delete[] lpFileName;
-        return vbFileData;
+        return NULL;
+    }
+
+    tFileData = static_cast<TCHAR*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ((inputFileSize + 1) * sizeof(TCHAR))));
+
+    if (!tFileData) {
+        printf("[-] Error occured when allocating memory in heap.\n");
+        CloseHandle(hFile);
+        return NULL;
     }
 
     printf("[+] Size of the file : %d bytes.\n", inputFileSize);
-    vbFileData.resize(inputFileSize);
     DWORD bytesRead;
-    if (!ReadFile(hFile, vbFileData.data(), inputFileSize, &bytesRead, NULL)) {
+    if (!ReadFile(hFile, tFileData, inputFileSize, &bytesRead, NULL)) {
         printf("[-] Error reading from the input file.\n");
         CloseHandle(hFile);
-        delete[] lpFileName;
-        return vbFileData;
+        HeapFree(GetProcessHeap(), 0, tFileData);
+        return NULL;
     }
-    std::wstring wEncodedString(reinterpret_cast<const wchar_t*>(vbFileData.data()), vbFileData.size() / sizeof(wchar_t));
+    
+    tFileData[inputFileSize] = _T('\0');
+
     printf("[+] Read bytes from the input file : %d bytes.\n", bytesRead);
     CloseHandle(hFile);
 
-    delete[] lpFileName;
 
-    return vbFileData;
+    return tFileData;
 }
 
-BOOL WriteDataToFile(std::vector<BYTE> vbData, char* cWriteFileName) {
-    LPCWSTR lpFileName = CharPtrToLPCWSTR(cWriteFileName);
-    HANDLE hFile = CreateFile(lpFileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+BOOL WriteDataToFile(TCHAR *tData, TCHAR *tWriteFileName) {
+    HANDLE hFile = CreateFile(tWriteFileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
     if (hFile == INVALID_HANDLE_VALUE) {
-        printf("[-] Unable to create or open file  \"%s\" for write.\n", cWriteFileName);
-        delete[] lpFileName;
+        _tprintf(TEXT("[-] Unable to create or open file  \"%s\" for write.\n"), tWriteFileName);
         return FALSE;
     }
 
     DWORD dwBytesWritten;
+    DWORD dwBytesToWrite = static_cast<DWORD>(wcslen(tData) * sizeof(TCHAR));
 
     if (!WriteFile(
         hFile,
-        vbData.data(),
-        static_cast<DWORD>(vbData.size()),
+        tData,
+        dwBytesToWrite,
         &dwBytesWritten,
         NULL
     )) {
         CloseHandle(hFile);
-        delete[] lpFileName;
         return FALSE;
     }
-    printf("[+] Written bytes to file %s: %d bytes.\n", cWriteFileName, dwBytesWritten);
-    if (dwBytesWritten != vbData.size())
+
+    _tprintf(TEXT("[+] Written bytes to file %s: %d bytes.\n"), tWriteFileName, dwBytesWritten);
+
+    if (dwBytesWritten != dwBytesToWrite)
         printf("[-] Written size and actual size doesn't match.\n");
     else
         printf("[+] Written size and actual size match.\n");
+
     CloseHandle(hFile);
 
     printf("[+] Successfully writen the Base64 encoded data to file.\n");
 
-    delete[] lpFileName;
 
     return TRUE;
 }
 
-std::vector<BYTE> Base64Encode(std::vector<BYTE> vbData) {
-    std::vector<BYTE> vbBase64EncodedData;
+TCHAR *Base64Encode(TCHAR* tData) {
+
+    TCHAR *tBase64EncodedData = NULL;
+
     HCRYPTPROV hCryptProv = 0;
     if (!CryptAcquireContext(&hCryptProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
         printf("[-] Error on CryptAcquireContext.\n");
-        return vbBase64EncodedData;
+        return tBase64EncodedData;
+    }
+    
+    int wideStringLength = wcslen(tData);
+
+    int utf8Length = WideCharToMultiByte(CP_UTF8, 0, tData, wideStringLength, NULL, 0, NULL, NULL);
+    if (utf8Length == 0) {
+        _tprintf(TEXT("[-] Conversion failed.\n"));
+        return NULL;
     }
 
+    unsigned char* ucData = new unsigned char[utf8Length + 1];
+
+    if (WideCharToMultiByte(CP_UTF8, 0, tData, wideStringLength, reinterpret_cast<LPSTR>(ucData), utf8Length, NULL, NULL) == 0) {
+        _tprintf(TEXT("[-] Conversion failed.\n"));
+        delete[] ucData;
+        return NULL;
+    }
+
+    ucData[utf8Length] = '\0';  // Null-terminate the UTF-8 string
+
     DWORD base64Size = 0;
-    if (!CryptBinaryToStringW(vbData.data(), static_cast<DWORD>(vbData.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &base64Size)) {
+    if (!CryptBinaryToString(ucData, utf8Length, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &base64Size)) {
         printf("[-] Error getting Base64 encoded size.\n");
-        return vbBase64EncodedData;
+        delete[] ucData;
+        return NULL;
     }
 
     printf("[+] Base64 encoded data size: %d bytes.\n", base64Size);
-    vbBase64EncodedData.resize(base64Size * sizeof(TCHAR));
 
-    if (!CryptBinaryToStringW(vbData.data(), static_cast<DWORD>(vbData.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, reinterpret_cast<LPWSTR>(vbBase64EncodedData.data()), &base64Size)) {
+    tBase64EncodedData = static_cast<wchar_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ((base64Size + 1) * sizeof(TCHAR))));
+
+    if (!tBase64EncodedData) {
+        printf("[-] Error occured when allocating memory in heap.\n");
+        delete[] ucData;
+        return NULL;
+    }
+
+    if (!CryptBinaryToString(ucData, utf8Length, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, tBase64EncodedData, &base64Size)) {
         printf("[-] Error Base64 encoding the input data.\n");
-        return vbBase64EncodedData;
+        HeapFree(GetProcessHeap(), 0, tBase64EncodedData);
+        delete[] ucData;
+        return NULL;
     }
 
-    return vbBase64EncodedData;
+    delete[] ucData;
+
+    return tBase64EncodedData;
 }
 
-std::vector<BYTE> Base64Decode(std::vector<BYTE>& vbEncodedData) {
-    std::vector<BYTE> vbBase64DecodedData;
+TCHAR *Base64Decode(TCHAR *tEncodedData) {
+    TCHAR *tBase64DecodedData = NULL;
+    unsigned char* ucBase64DecodedData = NULL;
     DWORD dwDecodedDataSize = 0;
-    std::wstring wEncodedString(reinterpret_cast<const wchar_t*>(vbEncodedData.data()), vbEncodedData.size() / sizeof(wchar_t));
 
-    if (!CryptStringToBinaryW(wEncodedString.c_str(), 0, CRYPT_STRING_BASE64, NULL, &dwDecodedDataSize, NULL, NULL)) {
+    if (!CryptStringToBinary(tEncodedData, 0, CRYPT_STRING_BASE64, NULL, &dwDecodedDataSize, NULL, NULL)) {
         printf("[-] Error getting Base64 decoded size.\n");
-        return vbBase64DecodedData;
+        return NULL;
     }
     printf("[+] Decoded data size : %d bytes.\n", dwDecodedDataSize);
 
-    vbBase64DecodedData.resize(dwDecodedDataSize);
+    ucBase64DecodedData = static_cast<unsigned char*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwDecodedDataSize));
 
-    if (!CryptStringToBinaryW(wEncodedString.c_str(), 0, CRYPT_STRING_BASE64, vbBase64DecodedData.data(), &dwDecodedDataSize, nullptr, nullptr)) {
+    if (!ucBase64DecodedData) {
+        printf("[-] Error occured when allocating memory in heap.\n");
+        return NULL;
+    }
+
+    if (!CryptStringToBinary(tEncodedData, 0, CRYPT_STRING_BASE64, ucBase64DecodedData, &dwDecodedDataSize, nullptr, nullptr)) {
         printf("[-] Error Base64 decoding the data.\n");
-        return vbBase64DecodedData;
+        HeapFree(GetProcessHeap(), 0, ucBase64DecodedData);
+        return NULL;
     }
 
-    return vbBase64DecodedData;
-}
+    int utf8StringLength = static_cast<int>(strlen(reinterpret_cast<const char*>(ucBase64DecodedData)));
 
-std::vector<BYTE> Base64Decode(LPCWSTR vbEncodedData) {
-    std::vector<BYTE> vbBase64DecodedData;
-    DWORD dwDecodedDataSize = 0;
-
-    if (!CryptStringToBinaryW(vbEncodedData, 0, CRYPT_STRING_BASE64, NULL, &dwDecodedDataSize, NULL, NULL)) {
-        printf("[-] Error getting Base64 decoded size.\n");
-        return vbBase64DecodedData;
+    int wideLength = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(ucBase64DecodedData), utf8StringLength, NULL, 0);
+    if (wideLength == 0) {
+        _tprintf(TEXT("[-] Conversion failed.\n"));
+        HeapFree(GetProcessHeap(), 0, ucBase64DecodedData);
+        return NULL;
     }
-    printf("[+] Decoded data size : %d bytes.\n", dwDecodedDataSize);
 
-    vbBase64DecodedData.resize(dwDecodedDataSize);
-
-    if (!CryptStringToBinaryW(vbEncodedData, 0, CRYPT_STRING_BASE64, vbBase64DecodedData.data(), &dwDecodedDataSize, nullptr, nullptr)) {
-        printf("[-] Error Base64 decoding the data.\n");
-        return vbBase64DecodedData;
+    tBase64DecodedData = new TCHAR[wideLength + 1];
+    if (MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(ucBase64DecodedData), utf8StringLength, tBase64DecodedData, wideLength) == 0) {
+        _tprintf(TEXT("[-] Conversion failed.\n"));
+        delete[] tBase64DecodedData;
+        HeapFree(GetProcessHeap(), 0, ucBase64DecodedData);
+        return NULL;
     }
-    delete[] vbEncodedData;
-    return vbBase64DecodedData;
+
+    tBase64DecodedData[wideLength] = L'\0';
+    HeapFree(GetProcessHeap(), 0, ucBase64DecodedData);
+
+    return tBase64DecodedData;
 }
 
 void PrintUsage(void)
@@ -179,52 +205,43 @@ void PrintUsage(void)
     printf("\t -d                       : To decode the data from base64.\n");
 }
 
-std::vector<BYTE> CharPtrToVector(const char* str) {
-    std::vector<BYTE> result;
-    size_t strLength = strlen(str);
-    result.resize(strLength);
-    for (size_t i = 0; i < strLength; ++i) {
-        result[i] = static_cast<BYTE>(str[i]);
-    }
-    return result;
-}
-
-int main(int argc, char* argv[]) {
+int wmain(int argc, wchar_t* argv[]) {
     if (argc < 5) {
         PrintUsage();
         return EXIT_SUCCESS;
     }
 
-    char* cInputFileName = NULL;
-    char* cOutputFileName = NULL;
-    char* cInputData = NULL;
+    TCHAR* tInputFileName = NULL;
+    TCHAR* tOutputFileName = NULL;
+    TCHAR* tInputData = NULL;
+    TCHAR* tOutputData = NULL;
     BOOL bInputFromScreen = FALSE;
     BOOL bOutputToScreen = FALSE;
     BOOL bEncode = FALSE;
     BOOL bDecode = FALSE;
 
     for (int i = 0;i < argc; i++) {
-        if (strcmp(argv[i], "-i") == 0)
-            cInputFileName = argv[i + 1];
-        if (strcmp(argv[i], "-iS") == 0) {
+        if (wcscmp(argv[i], L"-i") == 0)
+            tInputFileName = argv[i + 1];
+        if (wcscmp(argv[i], L"-iS") == 0) {
             bInputFromScreen = TRUE;
-            cInputData = argv[i + 1];
+            tInputData = argv[i + 1];
         }
-        if (strcmp(argv[i], "-o") == 0)
-            cOutputFileName = argv[i + 1];
-        if (strcmp(argv[i], "-oS") == 0)
+        if (wcscmp(argv[i], L"-o") == 0)
+            tOutputFileName = argv[i + 1];
+        if (wcscmp(argv[i], L"-oS") == 0)
             bOutputToScreen = TRUE;
-        if (strcmp(argv[i], "-e") == 0)
+        if (wcscmp(argv[i], L"-e") == 0)
             bEncode = TRUE;
-        if (strcmp(argv[i], "-d") == 0)
+        if (wcscmp(argv[i], L"-d") == 0)
             bDecode = TRUE;
     }
 
-    if (cInputFileName == NULL && !bInputFromScreen) {
+    if (tInputFileName == NULL && !bInputFromScreen) {
         printf("[-] '-i' or '-iS' missing from the command line argument!\n[+] Exiting!\n");
         return EXIT_FAILURE;
     }
-    if (cOutputFileName == NULL && !bOutputToScreen) {
+    if (tOutputFileName == NULL && !bOutputToScreen) {
         printf("[-] '-o' or '-oS' missing from the command line argument!\n[+] Exiting!\n");
         return EXIT_FAILURE;
     }
@@ -232,67 +249,56 @@ int main(int argc, char* argv[]) {
         printf("[-] '-e' or '-d' missing from the command line!\n[+] Exiting!\n");
         return EXIT_FAILURE;
     }
-
-    LPCWSTR lpInputData = NULL;
-    std::vector<BYTE> vbInputData;
-    std::vector<BYTE> vbOutputData;
-
-    if (bInputFromScreen && cInputData != NULL) {
-        if (bDecode)
-            lpInputData = CharPtrToLPCWSTR(cInputData);
-        else
-            vbInputData = CharPtrToVector(cInputData);
+   
+    if (tInputFileName != NULL) {
+        tInputData = ReadFileData(tInputFileName);
     }
-    else if (cInputFileName != NULL) {
-        vbInputData = ReadFileData(cInputFileName);
-    }
+
+
+    if (tInputData == NULL) return EXIT_FAILURE;
 
     if (bEncode) {
-        vbOutputData = Base64Encode(vbInputData);
+        tOutputData = Base64Encode(tInputData);
     }
     else if (bDecode) {
-        if (bInputFromScreen)
-            vbOutputData = Base64Decode(lpInputData);
-        else
-            vbOutputData = Base64Decode(vbInputData);
+        tOutputData = Base64Decode(tInputData);
     }
 
-    if (vbOutputData.empty()) return EXIT_FAILURE;
+    if (tOutputData == NULL) return EXIT_FAILURE;
 
     if (bOutputToScreen) {
-        std::string resultString;
-        for (BYTE byte : vbOutputData) {
-            if (byte == '\0' || byte == 0) continue;
-            resultString += static_cast<char>(byte);
-        }
-        resultString += '\0';
-        if (bEncode) std::cout << "[+] Encoded data : ";
-        else std::cout << "[+] Decoded data : ";
-        std::cout << resultString << std::endl;
+        if (bEncode) printf("[+] Encoded data : ");
+        else printf("[+] Decoded data : ");
 
+        _tprintf(TEXT("%ls\n"), tOutputData);
     }
-    else if (cOutputFileName != NULL) {
-        WriteDataToFile(vbOutputData, cOutputFileName);
+    else if (tOutputFileName != NULL) {
+        WriteDataToFile(tOutputData, tOutputFileName);
     }
     else {
-        char* cOutputFileNameBuffer = static_cast<char*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 19));
+        TCHAR *tOutputFileNameBuffer = static_cast<TCHAR*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 19));
 
-        if (!cOutputFileNameBuffer) {
+        if (!tOutputFileNameBuffer) {
             printf("[-] Memory allocation failed for output filename buffer.\n");
             return EXIT_FAILURE;
         }
 
         if (bEncode)
-            strcpy_s(cOutputFileNameBuffer, 18, "base64_encoded.txt");
+            wcscpy_s(tOutputFileNameBuffer, 18, TEXT("base64_encoded.txt"));
         else
-            strcpy_s(cOutputFileNameBuffer, 18, "base64_decoded.txt");
+            wcscpy_s(tOutputFileNameBuffer, 18, TEXT("base64_decoded.txt"));
 
-        cOutputFileNameBuffer[18] = '\0';
+        tOutputFileNameBuffer[18] = '\0';
 
-        WriteDataToFile(vbOutputData, cOutputFileNameBuffer);
+        WriteDataToFile(tOutputData, tOutputFileNameBuffer);
 
-        HeapFree(GetProcessHeap(), 0, cOutputFileNameBuffer);
+        HeapFree(GetProcessHeap(), 0, tOutputFileNameBuffer);
     }
+
+    // HeapFree(GetProcessHeap(), 0, tOutputData);
+
+    // if (bEncode) HeapFree(GetProcessHeap(), 0, tInputData);
+    // else delete[] tInputData;
 
     return 0;
 }
