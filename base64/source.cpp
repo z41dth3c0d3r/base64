@@ -254,7 +254,6 @@ int wmain(int argc, wchar_t* argv[]) {
         tInputData = ReadFileData(tInputFileName);
     }
 
-
     if (tInputData == NULL) return EXIT_FAILURE;
 
     if (bEncode) {
@@ -295,10 +294,10 @@ int wmain(int argc, wchar_t* argv[]) {
         HeapFree(GetProcessHeap(), 0, tOutputFileNameBuffer);
     }
 
-    // HeapFree(GetProcessHeap(), 0, tOutputData);
+    HeapFree(GetProcessHeap(), 0, tOutputData);
 
-    // if (bEncode) HeapFree(GetProcessHeap(), 0, tInputData);
-    // else delete[] tInputData;
+    if (bEncode) HeapFree(GetProcessHeap(), 0, tInputData);
+    else delete[] tInputData;
 
     return 0;
 }
