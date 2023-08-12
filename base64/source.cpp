@@ -9,9 +9,9 @@
 
 void DisplayError(LPTSTR lpszFunction);
 
-TCHAR *ReadFileData(TCHAR *cFileName) {
+LPTSTR ReadFileData(LPTSTR cFileName) {
     HANDLE hFile;
-    TCHAR *tFileData = NULL;
+    LPTSTR tFileData = NULL;
     hFile = CreateFileW(cFileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         printf("[-] Error opening the input file.\n");
@@ -25,7 +25,7 @@ TCHAR *ReadFileData(TCHAR *cFileName) {
         return NULL;
     }
 
-    tFileData = static_cast<TCHAR*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ((inputFileSize + 1) * sizeof(TCHAR))));
+    tFileData = static_cast<LPTSTR>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ((static_cast<unsigned long long>(inputFileSize) + 1) * sizeof(TCHAR))));
 
     if (!tFileData) {
         printf("[-] Error occured when allocating memory in heap.\n");
@@ -42,7 +42,7 @@ TCHAR *ReadFileData(TCHAR *cFileName) {
         return NULL;
     }
     
-    tFileData[inputFileSize] = _T('\0');
+    tFileData[inputFileSize] = TEXT('\0');
 
     printf("[+] Read bytes from the input file : %d bytes.\n", bytesRead);
     CloseHandle(hFile);
@@ -51,7 +51,7 @@ TCHAR *ReadFileData(TCHAR *cFileName) {
     return tFileData;
 }
 
-BOOL WriteDataToFile(TCHAR *tData, TCHAR *tWriteFileName) {
+BOOL WriteDataToFile(LPTSTR tData, LPTSTR tWriteFileName) {
     HANDLE hFile = CreateFile(tWriteFileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
     if (hFile == INVALID_HANDLE_VALUE) {
@@ -60,7 +60,7 @@ BOOL WriteDataToFile(TCHAR *tData, TCHAR *tWriteFileName) {
     }
 
     DWORD dwBytesWritten;
-    DWORD dwBytesToWrite = static_cast<DWORD>(wcslen(tData) * sizeof(TCHAR));
+    DWORD dwBytesToWrite = static_cast<DWORD>(_tcslen(tData) * sizeof(TCHAR));
 
     if (!WriteFile(
         hFile,
@@ -88,17 +88,11 @@ BOOL WriteDataToFile(TCHAR *tData, TCHAR *tWriteFileName) {
     return TRUE;
 }
 
-TCHAR *Base64Encode(TCHAR* tData) {
+LPTSTR Base64Encode(LPTSTR tData) {
 
-    TCHAR *tBase64EncodedData = NULL;
+    LPTSTR tBase64EncodedData = NULL;
 
-    HCRYPTPROV hCryptProv = 0;
-    if (!CryptAcquireContext(&hCryptProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
-        printf("[-] Error on CryptAcquireContext.\n");
-        return tBase64EncodedData;
-    }
-    
-    int wideStringLength = wcslen(tData);
+    int wideStringLength = _tcslen(tData);
 
     int utf8Length = WideCharToMultiByte(CP_UTF8, 0, tData, wideStringLength, NULL, 0, NULL, NULL);
     if (utf8Length == 0) {
@@ -114,7 +108,7 @@ TCHAR *Base64Encode(TCHAR* tData) {
         return NULL;
     }
 
-    ucData[utf8Length] = '\0';  // Null-terminate the UTF-8 string
+    ucData[utf8Length] = '\0';
 
     DWORD base64Size = 0;
     if (!CryptBinaryToString(ucData, utf8Length, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &base64Size)) {
@@ -125,7 +119,7 @@ TCHAR *Base64Encode(TCHAR* tData) {
 
     printf("[+] Base64 encoded data size: %d bytes.\n", base64Size);
 
-    tBase64EncodedData = static_cast<wchar_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ((base64Size + 1) * sizeof(TCHAR))));
+    tBase64EncodedData = static_cast<wchar_t*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ((static_cast<unsigned long long>(base64Size) + 1) * sizeof(TCHAR))));
 
     if (!tBase64EncodedData) {
         printf("[-] Error occured when allocating memory in heap.\n");
@@ -145,9 +139,9 @@ TCHAR *Base64Encode(TCHAR* tData) {
     return tBase64EncodedData;
 }
 
-TCHAR *Base64Decode(TCHAR *tEncodedData) {
-    TCHAR *tBase64DecodedData = NULL;
-    unsigned char* ucBase64DecodedData = NULL;
+LPTSTR Base64Decode(LPTSTR tEncodedData) {
+    LPTSTR tBase64DecodedData = NULL;
+    PBYTE ucBase64DecodedData = NULL;
     DWORD dwDecodedDataSize = 0;
 
     if (!CryptStringToBinary(tEncodedData, 0, CRYPT_STRING_BASE64, NULL, &dwDecodedDataSize, NULL, NULL)) {
@@ -156,8 +150,8 @@ TCHAR *Base64Decode(TCHAR *tEncodedData) {
     }
     printf("[+] Decoded data size : %d bytes.\n", dwDecodedDataSize);
 
-    ucBase64DecodedData = static_cast<unsigned char*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwDecodedDataSize));
-
+    ucBase64DecodedData = static_cast<PBYTE>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwDecodedDataSize));
+    
     if (!ucBase64DecodedData) {
         printf("[-] Error occured when allocating memory in heap.\n");
         return NULL;
@@ -169,7 +163,7 @@ TCHAR *Base64Decode(TCHAR *tEncodedData) {
         return NULL;
     }
 
-    int utf8StringLength = static_cast<int>(strlen(reinterpret_cast<const char*>(ucBase64DecodedData)));
+    int utf8StringLength = static_cast<int>(_tcslen(reinterpret_cast<const wchar_t*>(ucBase64DecodedData)));
 
     int wideLength = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(ucBase64DecodedData), utf8StringLength, NULL, 0);
     if (wideLength == 0) {
@@ -178,7 +172,7 @@ TCHAR *Base64Decode(TCHAR *tEncodedData) {
         return NULL;
     }
 
-    tBase64DecodedData = new TCHAR[wideLength + 1];
+    tBase64DecodedData = new TCHAR[(wideLength + 1) * sizeof(TCHAR)];
     if (MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(ucBase64DecodedData), utf8StringLength, tBase64DecodedData, wideLength) == 0) {
         _tprintf(TEXT("[-] Conversion failed.\n"));
         delete[] tBase64DecodedData;
@@ -186,7 +180,7 @@ TCHAR *Base64Decode(TCHAR *tEncodedData) {
         return NULL;
     }
 
-    tBase64DecodedData[wideLength] = L'\0';
+    tBase64DecodedData[wideLength] = TEXT('\0');
     HeapFree(GetProcessHeap(), 0, ucBase64DecodedData);
 
     return tBase64DecodedData;
@@ -205,16 +199,16 @@ void PrintUsage(void)
     printf("\t -d                       : To decode the data from base64.\n");
 }
 
-int wmain(int argc, wchar_t* argv[]) {
+int _tmain(int argc, TCHAR* argv[]) {
     if (argc < 5) {
         PrintUsage();
         return EXIT_SUCCESS;
     }
 
-    TCHAR* tInputFileName = NULL;
-    TCHAR* tOutputFileName = NULL;
-    TCHAR* tInputData = NULL;
-    TCHAR* tOutputData = NULL;
+    LPTSTR tInputFileName = NULL;
+    LPTSTR tOutputFileName = NULL;
+    LPTSTR tInputData = NULL;
+    LPTSTR tOutputData = NULL;
     BOOL bInputFromScreen = FALSE;
     BOOL bOutputToScreen = FALSE;
     BOOL bEncode = FALSE;
@@ -275,7 +269,7 @@ int wmain(int argc, wchar_t* argv[]) {
         WriteDataToFile(tOutputData, tOutputFileName);
     }
     else {
-        TCHAR *tOutputFileNameBuffer = static_cast<TCHAR*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 19));
+        LPTSTR tOutputFileNameBuffer = static_cast<LPTSTR>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 19 * sizeof(TCHAR)));
 
         if (!tOutputFileNameBuffer) {
             printf("[-] Memory allocation failed for output filename buffer.\n");
@@ -283,9 +277,9 @@ int wmain(int argc, wchar_t* argv[]) {
         }
 
         if (bEncode)
-            wcscpy_s(tOutputFileNameBuffer, 18, TEXT("base64_encoded.txt"));
+            _tcscpy_s(tOutputFileNameBuffer, 18, TEXT("base64_encoded.txt"));
         else
-            wcscpy_s(tOutputFileNameBuffer, 18, TEXT("base64_decoded.txt"));
+            _tcscpy_s(tOutputFileNameBuffer, 18, TEXT("base64_decoded.txt"));
 
         tOutputFileNameBuffer[18] = '\0';
 
@@ -296,8 +290,8 @@ int wmain(int argc, wchar_t* argv[]) {
 
     HeapFree(GetProcessHeap(), 0, tOutputData);
 
-    if (bEncode) HeapFree(GetProcessHeap(), 0, tInputData);
-    else delete[] tInputData;
+    if (bEncode == TRUE) HeapFree(GetProcessHeap(), 0, tInputData);
+    else if(bDecode == TRUE) delete[] tInputData;
 
     return 0;
 }
